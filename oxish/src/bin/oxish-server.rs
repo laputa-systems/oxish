@@ -1,4 +1,6 @@
-use core::net::{Ipv4Addr, SocketAddr};
+#![forbid(unsafe_code)]
+
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
@@ -11,14 +13,12 @@ use std::{
 };
 
 use anyhow::Context as _;
-#[cfg(debug_assertions)]
-use clap::ArgAction;
 use clap::Parser;
 #[cfg(target_os = "linux")]
 use listenfd::ListenFd;
-use oxish::{Config, DEFAULT_PROVIDER, DefaultStore, Server};
+use oxish::{Account, Config, DEFAULT_PROVIDER, GitPolicy, Server, Username, load_host_keys, require_supported_cpu};
 use proto::{
-    HostKeys, OpenSshKeyV1, SshPrivateKey,
+    OpenSshKeyV1, SshPrivateKey,
     named::{Named, PublicKeyAlgorithm},
     pem_encode,
 };
@@ -31,6 +31,7 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
+    require_supported_cpu()?;
     let provider = DEFAULT_PROVIDER;
     let args = Args::parse();
 
@@ -65,10 +66,11 @@ async fn main() -> anyhow::Result<()> {
         };
     }
 
-    let host_keys = match HostKeys::from_files(args.host_key_file.into_iter(), provider) {
-        Ok(host_keys) => host_keys,
-        Err(e) => anyhow::bail!("{e} (try RUST_LOG=warn for more information)"),
-    };
+    anyhow::ensure!(
+        !args.host_key_file.is_empty(),
+        "at least one --host-key-file is required (create one with --generate-host-key)"
+    );
+    let host_keys = load_host_keys(&args.host_key_file, provider)?;
     info!(len = host_keys.len(), "loaded host keys");
 
     let session_bin = match args.session_bin {
@@ -92,25 +94,18 @@ async fn main() -> anyhow::Result<()> {
             listener.set_nonblocking(true)?;
             TcpListener::from_std(listener)?
         }
-        (None, Some(port)) => {
-            let addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, port));
-            TcpListener::bind(addr).await?
-        }
+        (None, Some(port)) => TcpListener::bind(SocketAddr::new(args.bind, port)).await?,
         (Some(_), Some(_)) => anyhow::bail!("LISTEN_FDS and --port conflict with each other"),
         (None, None) => anyhow::bail!("unless LISTEN_FDS is set, --port is required"),
     };
 
     #[cfg(not(target_os = "linux"))]
     let listener = match args.port {
-        Some(port) => {
-            let addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, port));
-            TcpListener::bind(addr).await?
-        }
+        Some(port) => TcpListener::bind(SocketAddr::new(args.bind, port)).await?,
         None => anyhow::bail!("--port is required"),
     };
 
-    #[cfg_attr(not(debug_assertions), expect(unused_mut))]
-    let mut config = match &args.config {
+    let config = match &args.config {
         Some(path) => {
             let s = fs::read_to_string(path)
                 .with_context(|| format!("failed to read config file `{}`", path.display()))?;
@@ -119,43 +114,61 @@ async fn main() -> anyhow::Result<()> {
         }
         None => Config::default(),
     };
-    #[cfg(debug_assertions)]
-    {
-        config.spawn = args.spawn;
-    }
+
+    let (Some(repo_root), Some(git_dir), Some(authorized_keys)) =
+        (&args.repo_root, &args.git_dir, &args.authorized_keys)
+    else {
+        anyhow::bail!("--repo-root, --git-dir and --authorized-keys are required");
+    };
+    let policy = GitPolicy::new(repo_root, git_dir).context("unsafe git configuration")?;
+    let name = Username::try_from(args.user).context("invalid --user")?;
+    let account = Account::from_file(name, authorized_keys, provider)?;
 
     info!(addr = %listener.local_addr()?, "listening for connections");
     Arc::new(
-        Server::new(
-            DefaultStore::new(provider)?,
-            host_keys,
-            session_bin,
-            provider,
-        )?
-        .with_config(config),
+        Server::new(account, host_keys, session_bin, policy, provider)?
+            .with_config(config),
     )
     .run(listener)
     .await
 }
 
 #[derive(Debug, Parser)]
+#[command(about = "Git-only SSH server: public-key authentication, git-upload-pack and git-receive-pack")]
 struct Args {
+    /// TCP port to listen on (or set LISTEN_FDS for socket activation)
     #[clap(short, long)]
     port: Option<u16>,
+    /// Address to listen on; loopback unless you deliberately choose otherwise
+    #[clap(long, default_value_t = IpAddr::V4(Ipv4Addr::LOCALHOST))]
+    bind: IpAddr,
+    /// TOML file with `max-sessions`, `max-unauthenticated-per-ip` and `max-sessions-per-ip`
     #[clap(short, long)]
     config: Option<PathBuf>,
-    #[clap(long, default_values = DEFAULT_HOST_KEY_FILES)]
+    /// Host key file; repeat to serve several keys (the first of each algorithm is presented)
+    #[clap(long)]
     host_key_file: Vec<PathBuf>,
+    /// Create a new host key at this path and exit; never overwrites a file
     #[clap(long)]
     generate_host_key: Option<PathBuf>,
+    /// Algorithm for a key made with --generate-host-key
     #[clap(long, value_parser = host_key_type, default_value = "ssh-ed25519")]
     host_key_type: PublicKeyAlgorithm<'static>,
     /// Path to the `oxish-session` binary (defaults to a sibling of this executable)
     #[clap(long)]
     session_bin: Option<PathBuf>,
-    #[cfg(debug_assertions)]
-    #[clap(long, action = ArgAction::Set, default_value_t = true)]
-    spawn: bool,
+    /// Directory holding all Git repositories clients may name
+    #[clap(long, required_unless_present = "generate_host_key")]
+    repo_root: Option<PathBuf>,
+    /// Trusted directory with `git`, `git-upload-pack` and `git-receive-pack` (a git-build install)
+    #[clap(long, required_unless_present = "generate_host_key")]
+    git_dir: Option<PathBuf>,
+    /// authorized_keys-format file; every key needs `git-access="read"` or `git-access="write"`
+    #[clap(long, required_unless_present = "generate_host_key")]
+    authorized_keys: Option<PathBuf>,
+    /// The one SSH user name clients must use
+    #[clap(long, default_value = "git")]
+    user: String,
 }
 
 fn host_key_type(name: &str) -> Result<PublicKeyAlgorithm<'static>, String> {
@@ -164,8 +177,3 @@ fn host_key_type(name: &str) -> Result<PublicKeyAlgorithm<'static>, String> {
         algorithm => Ok(algorithm.to_owned()),
     }
 }
-
-const DEFAULT_HOST_KEY_FILES: &[&str] = &[
-    "/etc/ssh/ssh_host_ed25519_key",
-    "/etc/ssh/ssh_host_ecdsa_key",
-];

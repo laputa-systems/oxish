@@ -1,7 +1,9 @@
+#![forbid(unsafe_code)]
+
 use std::sync::Arc;
 
 use graviola::{
-    aead::AesGcm,
+    aead::{AesGcm, SshChaCha20Poly1305},
     hashing::{Hash as GHash, HashContext as GHashContext, Sha256 as GSha256},
     key_agreement::{mlkem768, p256::StaticPrivateKey, x25519},
     random,
@@ -103,6 +105,9 @@ impl CryptoProvider for Provider {
             EncryptionAlgorithm::Aes128Gcm => {
                 Ok(Box::new(Aes128GcmOpener(GcmState::new(counter, source)?)))
             }
+            EncryptionAlgorithm::Chacha20Poly1305 => Ok(Box::new(Chacha20Poly1305Opener(
+                ChachaState::new(counter, source)?,
+            ))),
             _ => Err(CryptoError::UnknownAlgorithm),
         }
     }
@@ -116,6 +121,9 @@ impl CryptoProvider for Provider {
             EncryptionAlgorithm::Aes128Gcm => {
                 Ok(Box::new(Aes128GcmSealer(GcmState::new(counter, source)?)))
             }
+            EncryptionAlgorithm::Chacha20Poly1305 => Ok(Box::new(Chacha20Poly1305Sealer(
+                ChachaState::new(counter, source)?,
+            ))),
             _ => Err(CryptoError::UnknownAlgorithm),
         }
     }
@@ -150,7 +158,10 @@ impl CryptoProvider for Provider {
                 PublicKeyAlgorithm::EcdsaSha2Nistp256,
                 PublicKeyAlgorithm::Ed25519,
             ],
-            encryption: &[EncryptionAlgorithm::Aes128Gcm],
+            encryption: &[
+                EncryptionAlgorithm::Aes128Gcm,
+                EncryptionAlgorithm::Chacha20Poly1305,
+            ],
             mac: &[MacAlgorithm::None],
         }
     }
@@ -227,6 +238,107 @@ impl OpeningKey for Aes128GcmOpener {
 
 const TAG_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
+
+/// `chacha20-poly1305@openssh.com` packet state: Graviola's SSH packet protection and the
+/// number of packets processed under its keys.
+struct ChachaState {
+    cipher: SshChaCha20Poly1305,
+    counter: u64,
+}
+
+impl ChachaState {
+    fn new(counter: u64, source: &KeySourceSide) -> Result<Self, CryptoError> {
+        let Some(key) = source.encryption_key.first_chunk::<CHACHA_KEY_LEN>() else {
+            return Err(CryptoError::InvalidLength);
+        };
+
+        if source.encryption_key.len() != CHACHA_KEY_LEN || !source.initial_iv.is_empty() {
+            return Err(CryptoError::InvalidLength);
+        }
+
+        Ok(Self {
+            cipher: SshChaCha20Poly1305::new(key),
+            counter,
+        })
+    }
+
+    /// Count one packet, refusing to go on once the sequence-number nonce space of these keys
+    /// could repeat.
+    fn count_packet(&mut self) -> Result<(), CryptoError> {
+        if self.counter >= u64::from(u32::MAX) {
+            return Err(CryptoError::NonceOverflow);
+        }
+        self.counter += 1;
+        Ok(())
+    }
+}
+
+struct Chacha20Poly1305Sealer(ChachaState);
+
+impl SealingKey for Chacha20Poly1305Sealer {
+    fn seal_in_place(
+        &mut self,
+        seq: u32,
+        data: &mut [u8],
+        tag: &mut [u8],
+    ) -> Result<(), CryptoError> {
+        let Some(tag) = tag.first_chunk_mut::<CHACHA_TAG_LEN>() else {
+            return Err(CryptoError::InvalidLength);
+        };
+
+        self.0.count_packet()?;
+        self.0
+            .cipher
+            .seal(seq, data, tag)
+            .map_err(|_| CryptoError::InvalidLength)
+    }
+
+    fn counter(&self) -> u64 {
+        self.0.counter
+    }
+
+    fn block_len(&self) -> usize {
+        CHACHA_BLOCK_LEN
+    }
+
+    fn tag_len(&self) -> usize {
+        CHACHA_TAG_LEN
+    }
+}
+
+struct Chacha20Poly1305Opener(ChachaState);
+
+impl OpeningKey for Chacha20Poly1305Opener {
+    fn open_in_place(&mut self, seq: u32, data: &mut [u8], tag: &[u8]) -> Result<(), CryptoError> {
+        let Some(tag) = tag.first_chunk::<CHACHA_TAG_LEN>() else {
+            return Err(CryptoError::InvalidLength);
+        };
+
+        self.0.count_packet()?;
+        self.0.cipher.open(seq, data, tag).map_err(|error| match error {
+            graviola::Error::WrongLength => CryptoError::InvalidLength,
+            _ => CryptoError::DecryptionFailed,
+        })
+    }
+
+    fn decrypt_packet_length(&mut self, seq: u32, encrypted: [u8; 4]) -> [u8; 4] {
+        self.0.cipher.decrypt_length(seq, encrypted)
+    }
+
+    fn counter(&self) -> u64 {
+        self.0.counter
+    }
+
+    fn tag_len(&self) -> usize {
+        CHACHA_TAG_LEN
+    }
+}
+
+/// Key material for `chacha20-poly1305@openssh.com`: two 256-bit keys
+const CHACHA_KEY_LEN: usize = 64;
+const CHACHA_TAG_LEN: usize = 16;
+/// Block size the packet layer pads to (OpenSSH uses 8 for this cipher)
+const CHACHA_BLOCK_LEN: usize = 8;
 
 /// Shared AES-128-GCM state: the key and the current 12-byte nonce
 struct GcmState {
