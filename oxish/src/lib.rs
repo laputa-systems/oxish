@@ -1,6 +1,7 @@
 //! OxiSH: a modern, memory-safe SSH server implementation
 
 #![warn(missing_docs)]
+#![forbid(unsafe_code)]
 
 use core::{fmt, future, net::SocketAddr, pin::Pin, str::FromStr};
 use std::{io, str, task::ready};
@@ -20,32 +21,26 @@ use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, trace, warn};
 
-/// Default cryptography provider, as determined based on the enabled features
-#[cfg(any(feature = "aws-lc", feature = "aws-lc-fips"))]
-pub use aws_lc::DEFAULT_PROVIDER;
-/// Default cryptography provider, as determined based on the enabled features
-#[cfg(all(
-    feature = "graviola",
-    not(feature = "aws-lc"),
-    not(feature = "aws-lc-fips")
-))]
+/// The only cryptography provider: Graviola
 pub use graviola::DEFAULT_PROVIDER;
-#[cfg(all(
-    not(feature = "aws-lc"),
-    not(feature = "aws-lc-fips"),
-    not(feature = "graviola")
-))]
-compile_error!("no crypto providers enabled -- enable at least one to fix this error");
 
+mod cpu;
+pub use cpu::{MissingCpuFeature, require_supported_cpu};
+mod host_keys;
+pub use host_keys::load_host_keys;
+mod git;
+pub use git::{GitAccess, GitCommand, GitPolicy, GitService, PolicyError, validate_protocol};
 mod authentication;
-pub use authentication::{AuthError, User, UserStore, Username};
+pub use authentication::{Account, AuthError, Username};
 mod session;
 pub use session::Session;
+#[doc(hidden)]
+pub use session::fuzz_channel_state;
 mod server;
-pub use server::{Config, RootPolicy, Server};
+pub use server::{Config, Server};
 #[cfg(unix)]
 mod unix;
-pub use platform::{DefaultStore, resume};
+pub use platform::resume;
 #[cfg(unix)]
 use unix as platform;
 
