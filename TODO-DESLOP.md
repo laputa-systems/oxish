@@ -1,5 +1,5 @@
 Prefix: DSLP
-Next: 7
+Next: 8
 
 Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/main/docs/campaigns/deslop.md), tier E). One agent works this file with the `deslop` skill: take the lowest-numbered open ticket whose area does not start with `Needs owner ·`. After DSLP-5, work the open P1 and P2 findings, then fill in `## Report` below.
 
@@ -8,15 +8,6 @@ Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/mai
 Not started.
 
 ## Tickets
-
-### DSLP-2 · P2 · Diagnose: ultrareview into this backlog
-
-- **Area:** deslop · diagnose
-- **Where:** whole repository (our changes against upstream)
-- **Problem:** No review has ranked this repository's risks for the deslop pass.
-- **Recommendation:** Run the deslop Diagnose step. Accept: the diff touches only docs, comments, and this file, and every finding names its Fix with.
-- **Fix with:** deslop
-- **Effort:** S
 
 ### DSLP-3 · P2 · Types: strict profile and typing findings
 
@@ -52,5 +43,14 @@ Not started.
 - **Problem:** The workspace patches graviola to ../graviola, but CI checks out only oxish. Fork CI run 43700946648 failed with patch location /home/runner/work/oxish/graviola does not contain packages matching graviola; the local patched source is supplied separately by ssh-build. Clean checkout CI cannot build oxish-graviola.
 - **Recommendation:** Decide how to supply the patched graviola source to standalone builds and CI; this pass is not authorized to change the patch mechanism.
 - **Fix with:** none
+- **Effort:** M
+
+### DSLP-7 · P3 · Cover server command line behavior
+
+- **Area:** CLI verification
+- **Where:** oxish/src/bin/oxish-server.rs, AGENTS.md
+- **Problem:** The server command line flags and exit statuses have no identified boundary test; changes to argument validation and startup diagnostics can regress without focused coverage.
+- **Recommendation:** Add process-level tests for supported and invalid argument combinations, with a negative control for a real contract.
+- **Fix with:** test-audit
 - **Effort:** M
 
