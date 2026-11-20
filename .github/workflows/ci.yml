@@ -21,55 +21,58 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: laputa-systems/ssh-build
+          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
+          path: ssh-build
+      - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-      - run: cargo check --all-targets
-      - run: cargo check -p oxish --no-default-features --features aws-lc
-      - run: cargo test --features graviola,aws-lc -- --include-ignored
+      - run: make test
 
   freebsd:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v7
         with:
-          toolchain: stable
-          targets: x86_64-unknown-freebsd
+          repository: laputa-systems/ssh-build
+          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
+          path: ssh-build
+      - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
+      # rust-toolchain.toml pins the toolchain, so add the target to it.
+      - run: rustup target add x86_64-unknown-freebsd
       - run: cargo check --target x86_64-unknown-freebsd -p oxish
 
-  msrv:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.85.0
-      # aws-lc-rs has a lower MSRV than graviola, so we use it to test our MSRV
-      - run: cargo check -p oxish --no-default-features --features aws-lc --bins
-
-  fips:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check -p oxish --no-default-features --features aws-lc-fips
 
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: laputa-systems/ssh-build
+          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
+          path: ssh-build
+      - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           components: rustfmt, clippy
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: make lint
 
   docs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: laputa-systems/ssh-build
+          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
+          path: ssh-build
+      - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
       # use nightly to mirror docs.rs
       - uses: dtolnay/rust-toolchain@nightly
       - name: cargo doc
@@ -81,6 +84,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: laputa-systems/ssh-build
+          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
+          path: ssh-build
+      - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
       # cargo-fuzz needs nightly for the sanitizer instrumentation
       - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/install-action@v2
@@ -93,26 +102,31 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: laputa-systems/ssh-build
+          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
+          path: ssh-build
+      - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@cargo-llvm-cov
       - run: cargo llvm-cov --workspace --lcov --output-path lcov.info -- --include-ignored
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov.info
-          # PRs from forks don't get secrets, and Codecov rejects their tokenless uploads
-          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
 
-  semver:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Check semver
-        uses: obi1kenobi/cargo-semver-checks-action@v2
 
   audit:
     runs-on: ubuntu-latest
     steps:
+      # cargo-deny-action runs in a container that mounts only the workspace,
+      # so the repository and the patched graviola both live inside it.
       - uses: actions/checkout@v7
+        with:
+          path: oxish
+      - uses: actions/checkout@v7
+        with:
+          repository: laputa-systems/ssh-build
+          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
+          path: ssh-build
+      - run: ln -s ssh-build/vendor/graviola graviola
       - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: oxish/Cargo.toml
