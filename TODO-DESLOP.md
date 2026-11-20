@@ -1,5 +1,5 @@
 Prefix: DSLP
-Next: 6
+Next: 7
 
 Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/main/docs/campaigns/deslop.md), tier E). One agent works this file with the `deslop` skill: take the lowest-numbered open ticket whose area does not start with `Needs owner ·`. After DSLP-5, work the open P1 and P2 findings, then fill in `## Report` below.
 
@@ -8,15 +8,6 @@ Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/mai
 Not started.
 
 ## Tickets
-
-### DSLP-1 · P2 · Ground: baseline, boundaries, and CI test entry point
-
-- **Area:** deslop · ground
-- **Where:** AGENTS.md, Makefile, .github/workflows/
-- **Problem:** Base 2aa9cb9; code lines Rust 9.7k (fleet/loc/v1, vendored included); timings not yet measured. Fork of djc/oxish (main); work only our changes against the upstream merge base (+4.1k/-2.6k); upstream code stays untouched. CI does not run make test: runs tests directly on pull requests; run make test or make test-ci instead so CI and local verification share one entry point. The root Makefile has no test target. Open fleet lint findings: laputa-rustix 2, gha-lint-workflow 1, make-clean-target 1, make-lint-target 1. Consumers in the fleet: ssh-build, xsh; their tests are the consumer check for API changes. Perf gate: decide in Ground whether a user-visible hot path needs a workload. Known red: CI has never run on main, and on pull requests every upstream workflow job fails (the lint job runs cargo fmt, which the pinned toolchain does not install; coverage, test, fuzz, freebsd, msrv, semver, docs, fips, audit, and plan fail too), so the fork has no working PR gate; Ground decides which upstream workflows to keep and makes make test the gate.
-- **Recommendation:** Run the deslop Ground step. Accept: CI runs make test and is green, and AGENTS.md has a Verification section.
-- **Fix with:** deslop
-- **Effort:** S
 
 ### DSLP-2 · P2 · Diagnose: ultrareview into this backlog
 
@@ -52,5 +43,14 @@ Not started.
 - **Problem:** No dead-code scan has run.
 - **Recommendation:** Run the deslop Dead code step. Accept: tools clean or allowlisted with reasons; walk-backs filed as Needs owner tickets.
 - **Fix with:** deslop
+- **Effort:** M
+
+### DSLP-6 · P2 · Provide patched graviola to clean checkout CI
+
+- **Area:** Needs owner · CI dependency
+- **Where:** Cargo.toml, .github/workflows/ci.yml
+- **Problem:** The workspace patches graviola to ../graviola, but CI checks out only oxish. Fork CI run 43700946648 failed with patch location /home/runner/work/oxish/graviola does not contain packages matching graviola; the local patched source is supplied separately by ssh-build. Clean checkout CI cannot build oxish-graviola.
+- **Recommendation:** Decide how to supply the patched graviola source to standalone builds and CI; this pass is not authorized to change the patch mechanism.
+- **Fix with:** none
 - **Effort:** M
 
