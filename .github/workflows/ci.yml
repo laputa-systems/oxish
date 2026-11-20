@@ -165,11 +165,17 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
+      # cargo-deny-action runs in a container that mounts only the workspace,
+      # so the repository and the patched graviola both live inside it.
       - uses: actions/checkout@v7
+        with:
+          path: oxish
       - uses: actions/checkout@v7
         with:
           repository: laputa-systems/ssh-build
           ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
           path: ssh-build
-      - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
+      - run: ln -s ssh-build/vendor/graviola graviola
       - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: oxish/Cargo.toml
