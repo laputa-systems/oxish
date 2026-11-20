@@ -27,15 +27,6 @@ Not started.
 - **Fix with:** deslop
 - **Effort:** M
 
-### DSLP-6 · P2 · Provide patched graviola to clean checkout CI
-
-- **Area:** Needs owner · CI dependency
-- **Where:** Cargo.toml, .github/workflows/ci.yml
-- **Problem:** The workspace patches graviola to ../graviola, but CI checks out only oxish. Fork CI run 43700946648 failed with patch location /home/runner/work/oxish/graviola does not contain packages matching graviola; the local patched source is supplied separately by ssh-build. Clean checkout CI cannot build oxish-graviola.
-- **Recommendation:** Decide how to supply the patched graviola source to standalone builds and CI; this pass is not authorized to change the patch mechanism.
-- **Fix with:** none
-- **Effort:** M
-
 ### DSLP-7 · P3 · Cover server command line behavior
 
 - **Area:** CLI verification
