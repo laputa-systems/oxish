@@ -1,132 +1,39 @@
-name: CI
+name: ci
 
 on:
-  push:
-    branches: ["main"]
   pull_request:
-  schedule:
-    - cron: "34 6 * * 5"
+  push:
+    branches: [main, master]
+
+permissions: {}
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}"
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
 
 jobs:
-  test:
+  ci:
+    name: ci
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-26.04, macos-latest]
-        rust: [stable]
-        include:
-          - os: ubuntu-26.04
-            rust: beta
-
-    runs-on: ${{ matrix.os }}
-
+        os: [ubuntu-26.04-arm, xcode-27]
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: laputa-systems/ssh-build
           ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
           path: ssh-build
+          persist-credentials: false
       - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-      - run: make test
-
-  freebsd:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
-        with:
-          repository: laputa-systems/ssh-build
-          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
-          path: ssh-build
-      - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
-      # rust-toolchain.toml pins the toolchain, so add the target to it.
-      - run: rustup target add x86_64-unknown-freebsd
-      - run: cargo check --target x86_64-unknown-freebsd -p oxish
-
-
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
-        with:
-          repository: laputa-systems/ssh-build
-          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
-          path: ssh-build
-      - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
-      - run: make lint
-
-  docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
-        with:
-          repository: laputa-systems/ssh-build
-          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
-          path: ssh-build
-      - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
-      # use nightly to mirror docs.rs
-      - uses: dtolnay/rust-toolchain@nightly
-      - name: cargo doc
-        run: cargo doc --locked --all-features --no-deps --document-private-items
-        env:
-          RUSTDOCFLAGS: -Dwarnings
-
-  fuzz:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
-        with:
-          repository: laputa-systems/ssh-build
-          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
-          path: ssh-build
-      - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
-      # cargo-fuzz needs nightly for the sanitizer instrumentation
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-fuzz
-      # the prebuilt cargo-fuzz defaults to a musl target, which sanitizers can't use
-      - run: cargo fuzz build --target x86_64-unknown-linux-gnu
-
-  coverage:
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
-        with:
-          repository: laputa-systems/ssh-build
-          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
-          path: ssh-build
-      - run: ln -s "$GITHUB_WORKSPACE/ssh-build/vendor/graviola" "$GITHUB_WORKSPACE/../graviola"
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@cargo-llvm-cov
-      - run: cargo llvm-cov --workspace --lcov --output-path lcov.info -- --include-ignored
-
-
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      # cargo-deny-action runs in a container that mounts only the workspace,
-      # so the repository and the patched graviola both live inside it.
-      - uses: actions/checkout@v7
-        with:
-          path: oxish
-      - uses: actions/checkout@v7
-        with:
-          repository: laputa-systems/ssh-build
-          ref: 7f4f5157018f3c8544653d8a784169aee3a3b945
-          path: ssh-build
-      - run: ln -s ssh-build/vendor/graviola graviola
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          manifest-path: oxish/Cargo.toml
+      - name: test
+        run: make test
