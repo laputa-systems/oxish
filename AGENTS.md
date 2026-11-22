@@ -1,5 +1,7 @@
 ## Verification
 
+`make clean` removes this checkout’s build output in `./target`. It refuses symlinks and ordinary files at those paths.
+
 - Standalone builds require ssh-build's patched graviola at `../graviola`. CI checks out `laputa-systems/ssh-build` at `7f4f5157018f3c8544653d8a784169aee3a3b945` and links its `vendor/graviola` there. To update the pin, verify the vendor includes the SSH ChaCha20-Poly1305 patch, update each checkout ref, refresh `Cargo.lock`, and run the workspace tests and lint.
 - `make test` runs workspace unit, integration, and documentation tests; `make lint` runs workspace Clippy on all targets and features. Ground on macOS arm64: cold test 164.44s, warm 92.96s including build-lock contention (main test binary 29.43s), lint 42.54s; 70 tests passed.
 - Test tiers: `oxish` has 51 unit and SSH/Git integration tests, `oxish-graviola` has 5 vector tests, and `oxish-proto` has 13 unit and 1 decode integration test. A subsequent warm run took 6.06s (main binary 4.86s). `test-pyramid`, coverage, and mutation tools are unavailable locally.
